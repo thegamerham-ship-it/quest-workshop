@@ -1,0 +1,18 @@
+# 웹 화면 모양. 색은 한지(종이)와 쪽빛(남색) 톤.
+[client]
+toolbarMode = "viewer"          # 오른쪽 위 개발자 메뉴·Deploy 버튼 숨김
+showSidebarNavigation = false
+
+[theme]
+base = "light"
+primaryColor = "#3A5A78"
+backgroundColor = "#F6F3EC"
+secondaryBackgroundColor = "#ECE6DA"
+textColor = "#2A2724"
+linkColor = "#3A5A78"
+borderColor = "#DDD5C6"
+baseRadius = "0.6rem"
+showWidgetBorder = true
+font = "Noto Sans KR:https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap, sans-serif"
+headingFont = "Noto Serif KR:https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@600;700&display=swap, serif"
+headingFontWeights = 700
