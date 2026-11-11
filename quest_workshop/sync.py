@@ -104,8 +104,18 @@ def enabled() -> bool:
     return _sync is not None
 
 
+_local_dirs: set[Path] = set()
+
+
+def local_only(save_dir: str | Path) -> None:
+    """이 폴더에 쓰는 파일은 GitHub에 올리지 않는다(웹 둘러보기용 임시 폴더)."""
+    _local_dirs.add(Path(save_dir).resolve())
+
+
 def persist(path: str | Path) -> str:
     """파일을 쓴 직후 부른다. GitHub에도 올리고 결과를 한 줄로 돌려준다(꺼져 있으면 빈 문자열)."""
+    if Path(path).resolve().parent in _local_dirs:
+        return ""
     if not enabled():
         return ""
     try:

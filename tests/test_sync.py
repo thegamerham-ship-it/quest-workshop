@@ -69,3 +69,16 @@ def test_github_failure_does_not_block_approval(tmp_path, monkeypatch):
 
 def test_disabled_without_token(tmp_path):
     assert sync.persist(tmp_path / "x.json") == "" and sync.pull_all(tmp_path) == ""
+
+
+def test_local_only_dir_is_not_pushed(tmp_path, monkeypatch):
+    """웹 둘러보기 임시 폴더에 쓴 것은 GitHub에 올리지 않는다."""
+    gh = FakeGitHub()
+    monkeypatch.setattr(sync, "_sync", gh)
+    monkeypatch.setattr(sync, "_configured", True)
+    monkeypatch.setattr(sync, "_local_dirs", set())
+    sync.local_only(tmp_path / "browse")
+    add_rule(tmp_path / "browse", "둘러보기에서 쓴 지침")
+    assert gh.files == {}
+    add_rule(tmp_path / "real", "실제 지침")
+    assert "quests/guidelines.json" in gh.files

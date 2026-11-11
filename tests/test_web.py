@@ -1,4 +1,6 @@
 """웹 화면(streamlit_app.py): 가짜 모델로 제안 받기 → 승인 → 저장, 요청 직접 넣기."""
+from pathlib import Path
+
 import pytest
 
 st_testing = pytest.importorskip("streamlit.testing.v1")
@@ -55,3 +57,25 @@ def test_discard_and_get_new_proposal(at, tmp_path):
     after = {v["request"] for v in at.session_state["items"].values()}
     assert len(after) == 5 and len(before - after) == 1 and len(after - before) == 1
     assert (tmp_path / "discarded.json").exists()
+
+
+def test_browse_without_password(tmp_path, monkeypatch):
+    """암호 없이 둘러보기: 가짜 모델로 흐름이 돌고, 실제 저장 폴더는 건드리지 않는다. 실제 승인 퀘스트는 보인다."""
+    real = tmp_path / "real"
+    real.mkdir()
+    (real / "quest_real.json").write_text(
+        '{"request": "실제 요청", "draft": {"title": "실제 퀘스트"}}', encoding="utf-8")
+    monkeypatch.setenv("QUEST_LLM", "gemini")      # 서버 기본이 Gemini여도 둘러보기는 가짜 모델
+    monkeypatch.setenv("QUEST_SAVE_DIR", str(real))
+    monkeypatch.setenv("APP_PASSWORD", "secret")
+    a = st_testing.AppTest.from_file("../streamlit_app.py", default_timeout=30)
+    a.run()
+    click(a, "둘러보기 시작")
+    assert not a.exception
+    browse = a.session_state["browse_dir"]
+    assert (Path(browse) / "quest_real.json").exists()
+    click(a, "오늘의 제안 받기")
+    click(a, "승인")
+    assert not a.exception
+    assert len(list(Path(browse).glob("quest_*.json"))) == 2
+    assert [p.name for p in real.glob("quest_*.json")] == ["quest_real.json"]
