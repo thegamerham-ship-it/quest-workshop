@@ -10,12 +10,15 @@
   GOOGLE_API_KEY   있으면 Gemini, 없으면 가짜 모델
   QUEST_LLM        auto(기본) / fake / gemini
   QUEST_SAVE_DIR   승인한 퀘스트를 저장할 폴더(기본 output/quests)
-  APP_PASSWORD     정해 두면 이 암호를 넣어야 화면이 열린다(공개 배포 때 키 남용 방지)
+  APP_PASSWORD     정해 두면 이 암호를 넣어야 화면이 열린다(공개 배포 때 키 남용 방지).
+                   암호 없이는 "둘러보기"만 된다: 가짜 모델, 이 창에서만 쓰는 임시 폴더, GitHub 저장 안 함.
 """
 from __future__ import annotations
 
 import json
 import os
+import shutil
+import tempfile
 import uuid
 from pathlib import Path
 
@@ -33,7 +36,7 @@ from quest_workshop.llm import make_llm
 from quest_workshop.guide import add_discard, add_rule, load_rules, remove_rule
 from quest_workshop.lore import load_cards, load_main_story, unlock_text
 from quest_workshop.propose import answer, build_batch_graph
-from quest_workshop.sync import pull_all
+from quest_workshop.sync import local_only, pull_all
 
 st.set_page_config(page_title="천지인 퀘스트 작업실", page_icon="🖌️", layout="wide",
                    initial_sidebar_state="collapsed")
@@ -54,22 +57,54 @@ def pill(status) -> str:
 
 # ---------------------------------------------------------------- 준비
 
-def password_ok() -> bool:
+def access_mode() -> str | None:
+    """"full"(암호를 넣었거나 암호가 없음) / "browse"(둘러보기) / None(아직 고르지 않음)."""
     pw = os.getenv("APP_PASSWORD")
-    if not pw:
-        return True
-    if st.session_state.get("pw_ok"):
-        return True
-    typed = st.text_input("암호", type="password")
-    if typed and typed == pw:
-        st.session_state.pw_ok = True
-        st.rerun()
-    elif typed:
-        st.error("암호가 맞지 않아요.")
-    return False
+    if not pw or st.session_state.get("pw_ok"):
+        return "full"
+    if st.session_state.get("browse"):
+        return "browse"
+    left, right = st.columns(2)
+    with left.container(border=True):
+        st.markdown("**둘러보기** · 암호 없이")
+        st.caption("가짜 모델로 제안 → 작성 → 두 검수 → 승인 흐름을 직접 눌러 볼 수 있어요. "
+                   "API를 부르지 않고, 결과는 이 창에서만 쓰고 사라져요. "
+                   "'승인된 퀘스트' 탭에는 실제 Gemini로 만든 퀘스트가 있어요.")
+        if st.button("둘러보기 시작", type="primary"):
+            st.session_state.browse = True
+            st.rerun()
+    with right.container(border=True):
+        st.markdown("**실제 모델(Gemini)** · 암호 필요")
+        typed = st.text_input("암호", type="password")
+        if typed and typed == pw:
+            st.session_state.pw_ok = True
+            st.rerun()
+        elif typed:
+            st.error("암호가 맞지 않아요.")
+    return None
 
 
 @st.cache_resource
+def pulled_once(save_dir: str) -> str:
+    """둘러보기도 실제 승인 퀘스트를 보여 주도록, 서버당 한 번만 GitHub에서 받아 온다."""
+    return pull_all(save_dir)
+
+
+def browse_dir(real_dir: str) -> str:
+    """둘러보기 손님마다 임시 폴더. 실제 저장 폴더의 퀘스트·지침을 복사해 두고, GitHub에는 올리지 않는다."""
+    if "browse_dir" not in st.session_state:
+        pulled_once(real_dir)
+        d = Path(tempfile.mkdtemp(prefix="browse_"))
+        src = Path(real_dir)
+        if src.is_dir():
+            for f in src.glob("*.json"):
+                shutil.copy(f, d / f.name)
+        local_only(d)
+        st.session_state.browse_dir = str(d)
+    return st.session_state.browse_dir
+
+
+@st.cache_resource(max_entries=30)
 def workshop(kind: str, save_dir: str):
     """모델·그래프를 한 번만 만든다. 승인 대기 중인 퀘스트(체크포인트)가 화면을 다시 그려도 유지된다."""
     pulled = pull_all(save_dir)   # 인터넷 버전: 재시작 뒤 GitHub에 저장해 둔 퀘스트·지침을 다시 받아 온다
@@ -222,13 +257,19 @@ st.markdown('<div class="cj-head"><h1>천지인 퀘스트 작업실</h1></div>'
             '<div class="cj-sub">설정 카드를 근거로 1장 퀘스트를 제안하고 쓰면, 설정·기획 두 검수자가 보고 기획자가 결재합니다.</div>',
             unsafe_allow_html=True)
 
-if not password_ok():
+mode = access_mode()
+if mode is None:
     st.stop()
 
 has_key = bool(os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"))
 default_kind = os.getenv("QUEST_LLM", "auto")
 kinds = ["auto", "fake", "gemini"]
 save_dir = os.getenv("QUEST_SAVE_DIR", "output/quests")
+if mode == "browse":
+    save_dir = browse_dir(save_dir)
+    default_kind, kinds = "fake", ["fake"]
+    st.info("둘러보기 모드예요. 가짜 모델이라 정해진 답이 나오고, 흐름(제안 → 작성 → 설정·기획 검수 → 승인)을 "
+            "확인하는 용도예요. 여기서 승인한 것은 이 창을 닫으면 사라져요.")
 
 with st.container(border=True):
     c = st.columns([1.2, 0.8, 1.4, 1.4])

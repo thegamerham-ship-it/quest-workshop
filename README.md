@@ -7,8 +7,9 @@
 게임 시나리오·퀘스트 기획 7년 차 기획자가 "AI가 쓴 퀘스트를 그대로 믿을 수 없는 이유"를 구조로 풀어 본 프로젝트다.
 LangGraph · Gemini · Streamlit · pytest.
 
-- 웹 데모: https://cheonjiin-quest.streamlit.app/ (API 비용 때문에 암호가 걸려 있다)
-- 암호 없이 보기: 아래 [돌려 보기](#돌려-보기)의 `--llm fake`는 API 키 없이 전체 흐름이 돈다.
+- 웹 데모: https://cheonjiin-quest.streamlit.app/ → **둘러보기 시작**을 누르면 암호 없이 들어간다.
+  - 둘러보기: 가짜 모델로 제안 → 작성 → 두 검수 → 승인 흐름을 직접 눌러 볼 수 있다. "승인된 퀘스트" 탭에는 실제 Gemini로 만든 퀘스트가 있다.
+  - 실제 Gemini 호출은 API 비용 때문에 암호가 걸려 있다.
 
 ## 왜 만들었나
 
@@ -90,7 +91,7 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
 python -m quest_workshop.run --demo --llm fake   # API 키 없이 테스트 요청 5개 자동 실행
-python -m pytest -q                               # 테스트 51개
+python -m pytest -q                               # 테스트 53개
 streamlit run streamlit_app.py                    # 웹 화면
 ```
 
@@ -151,7 +152,7 @@ python -m quest_workshop.run --propose 5     # 오늘의 요청 5개 → 각각 
 | `quest_workshop/sync.py` | 웹 서버가 재시작해도 승인 퀘스트가 남도록 GitHub `quest-data` 브랜치에 저장 |
 | `quest_workshop/run.py` | 터미널 실행과 데모 |
 | `streamlit_app.py` | 웹 화면: 오늘의 제안 / 요청 직접 넣기 / 승인된 퀘스트 |
-| `tests/` | pytest 51개. 가짜 모델로 모든 경로(approved, rejected, needs_review, lore_gap)를 확인 |
+| `tests/` | pytest 53개. 가짜 모델로 모든 경로(approved, rejected, needs_review, lore_gap)를 확인 |
 
 ## AI와 함께 만든 방식
 
