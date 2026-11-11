@@ -1,0 +1,6 @@
+langgraph==1.2.20
+langchain-google-genai==4.4.3
+pydantic>=2.7
+python-dotenv>=1.0
+pytest>=8
+streamlit>=1.40

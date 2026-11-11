@@ -1,0 +1,71 @@
+{
+  "_설명": "메인 시나리오·메인 퀘스트가 맡는 사건(석신 님 확정 11/10). 순서대로 적는다. 퀘스트 작업실(일일·서브 퀘스트)에서는 이 사건을 다시 쓰거나 같은 흐름으로 바꿔 쓰지 않는다. block_terms가 요청·초안에 나오면 코드가 바로 막고, 나머지는 AI(제안자·작성자·설정 검수자)가 뜻으로 판단한다. 서브 퀘스트의 열림 조건(unlock)은 이 beat_id로 적는다.",
+  "beats": [
+    {
+      "beat_id": "main_ch1_ritual",
+      "chapter": 1,
+      "title": "어긋난 액막이제",
+      "summary": "관아에 떠밀린 청운이 서낭당에서 액막이제를 대충 치르다 다른 세계의 존재를 불러들이는 1장 시작 사건",
+      "card_ids": [
+        "event_ritual_01",
+        "char_officials_01"
+      ],
+      "block_terms": [],
+      "confirmed": true
+    },
+    {
+      "beat_id": "main_ch1_meet_knight",
+      "chapter": 1,
+      "title": "기사와의 첫 만남과 오해",
+      "summary": "뒷산에 떨어진 기사를 처음 만나고, 말이 통하지 않아 기사가 청운을 불가사리 부리는 술사로 오해하는 사건",
+      "card_ids": [
+        "char_knight_01",
+        "place_mountain_01"
+      ],
+      "block_terms": [],
+      "confirmed": true
+    },
+    {
+      "beat_id": "main_ch1_boss",
+      "chapter": 1,
+      "title": "두억시니 보스전과 기사의 합류",
+      "summary": "기사를 쫓아 함께 떨어진 거구의 괴물 두억시니와 싸우고, 그 도중 기사가 청운 편에 서서 동료가 되는 사건",
+      "card_ids": [
+        "enemy_ch1_01",
+        "char_knight_01"
+      ],
+      "block_terms": [
+        "두억시니"
+      ],
+      "confirmed": true
+    },
+    {
+      "beat_id": "main_ch1_earwine",
+      "chapter": 1,
+      "title": "귀밝이술로 말이 통함",
+      "summary": "청운이 막걸리에 도술을 걸어 귀밝이술을 만들고, 기사가 마신 뒤 둘의 말이 처음 통하는 사건",
+      "card_ids": [
+        "item_earwine_01",
+        "char_knight_01"
+      ],
+      "block_terms": [
+        "귀밝이술"
+      ],
+      "confirmed": true
+    },
+    {
+      "beat_id": "main_ch1_ending",
+      "chapter": 1,
+      "title": "1장 끝, 푸른 외눈 불빛",
+      "summary": "기사가 동료가 된 뒤 먼 산자락에서 푸른 외눈 불빛이 둘을 지켜보다 사라지는 1장 마지막 장면",
+      "card_ids": [
+        "event_ch1_ending_01"
+      ],
+      "block_terms": [
+        "외눈 불빛",
+        "푸른 불빛"
+      ],
+      "confirmed": true
+    }
+  ]
+}
