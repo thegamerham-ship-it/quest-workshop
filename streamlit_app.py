@@ -15,11 +15,13 @@
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
 import tempfile
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
 import streamlit as st
@@ -31,6 +33,7 @@ try:
 except ImportError:
     pass
 
+from quest_workshop.errors import friendly
 from quest_workshop.graph import build_graph
 from quest_workshop.llm import make_llm
 from quest_workshop.guide import add_discard, add_rule, load_rules, remove_rule
@@ -41,6 +44,17 @@ from quest_workshop.variants import find_giver_id, giver_candidates, make_varian
 
 st.set_page_config(page_title="천지인 퀘스트 작업실", page_icon="🖌️", layout="wide",
                    initial_sidebar_state="collapsed")
+
+@contextmanager
+def model_call():
+    """AI 호출이 실패해도 화면이 죽지 않게: 기획자용 안내 + 접힌 자세한 오류."""
+    try:
+        yield
+    except Exception as e:  # st.rerun/st.stop은 BaseException이라 여기 걸리지 않는다
+        st.warning(friendly(e))
+        with st.expander("자세한 오류"):
+            st.code(f"{type(e).__name__}: {e}"[:800])
+
 
 STATUS_LABEL = {
     "승인 대기": ("승인 대기", "cj-wait"),
@@ -105,9 +119,18 @@ def browse_dir(real_dir: str) -> str:
     return st.session_state.browse_dir
 
 
+def code_version() -> str:
+    """quest_workshop 코드가 바뀌면 값이 바뀐다. 배포 뒤 옛 모델 객체가 남지 않게 workshop 캐시 열쇠로 쓴다."""
+    h = hashlib.md5()
+    for f in sorted(Path(__file__).parent.joinpath("quest_workshop").glob("*.py")):
+        h.update(f.read_bytes())
+    return h.hexdigest()[:8]
+
+
 @st.cache_resource(max_entries=30)
-def workshop(kind: str, save_dir: str):
-    """모델·그래프를 한 번만 만든다. 승인 대기 중인 퀘스트(체크포인트)가 화면을 다시 그려도 유지된다."""
+def workshop(kind: str, save_dir: str, version: str = ""):
+    """모델·그래프를 한 번만 만든다. 승인 대기 중인 퀘스트(체크포인트)가 화면을 다시 그려도 유지된다.
+    version이 바뀌면(코드 갱신) 새로 만든다."""
     pulled = pull_all(save_dir)   # 인터넷 버전: 재시작 뒤 GitHub에 저장해 둔 퀘스트·지침을 다시 받아 온다
     if pulled:
         print(pulled)
@@ -146,13 +169,14 @@ def render_variant_tool(path: Path, rec: dict) -> None:
                             key=f"vg_{path.name}", max_selections=5)
     key = f"var_{path.name}"
     if st.button("변형 만들기", key=f"vb_{path.name}", disabled=not picked):
-        with st.spinner("변형 쓰고 설정 검수하는 중…"):
+        with model_call(), st.spinner("변형 쓰고 설정 검수하는 중…"):
             st.session_state[key] = make_variants(llm, rec, picked, on_log=lambda *_: None)
     res = st.session_state.get(key)
     if not res:
         return
     for e in res.get("errors", []):
-        st.error(f"{e['giver']} 변형 실패 · {e['error']}")
+        st.error(f"{e['giver']} 변형 실패 · {friendly(e['error'])}")
+        st.caption(e["error"])
     if not res["variants"]:
         st.warning("변형을 하나도 만들지 못했어요. 위 오류를 확인하고 다시 눌러 주세요.")
         return
@@ -262,21 +286,24 @@ def render_item(key: str, item: dict, app) -> None:
                 ans = {"approve": False}
             if item.get("source") == "제안" and b[3].button("버리고 새 제안", key=f"new_{key}",
                                                          help="요청 자체가 틀렸을 때. 이 요청은 다시 제안하지 않아요"):
-                with st.spinner("새 요청을 제안받아 쓰는 중…"):
-                    replace_with_new(key, item, fb)
-                st.rerun()
+                with model_call():
+                    with st.spinner("새 요청을 제안받아 쓰는 중…"):
+                        replace_with_new(key, item, fb)
+                    st.rerun()
             if ans is not None:
-                with st.spinner("반영하는 중…"):
-                    res = answer(app, item["thread_id"], ans)
-                st.session_state["items"][key] = item_from_result(res, item)
-                st.rerun()
+                with model_call():
+                    with st.spinner("반영하는 중…"):
+                        res = answer(app, item["thread_id"], ans)
+                    st.session_state["items"][key] = item_from_result(res, item)
+                    st.rerun()
         elif item.get("saved_path"):
             st.caption(f"저장: {item['saved_path']}")
         elif item.get("source") == "제안":
             if st.button("버리고 새 제안", key=f"new_{key}", help="이 요청은 다시 제안하지 않아요"):
-                with st.spinner("새 요청을 제안받아 쓰는 중…"):
-                    replace_with_new(key, item)
-                st.rerun()
+                with model_call():
+                    with st.spinner("새 요청을 제안받아 쓰는 중…"):
+                        replace_with_new(key, item)
+                    st.rerun()
 
 
 # ---------------------------------------------------------------- 화면
@@ -326,7 +353,7 @@ if kind == "gemini" and not has_key:
     st.error("GOOGLE_API_KEY가 없어요. 모델을 fake로 바꾸거나 키를 넣어 주세요.")
     st.stop()
 
-llm, app, batch = workshop(kind, save_dir)
+llm, app, batch = workshop(kind, save_dir, code_version())
 st.markdown(f'<div class="cj-meta">지금 모델 <b>{llm.name}</b> · 저장 폴더 <code>{save_dir}</code></div>',
             unsafe_allow_html=True)
 
@@ -337,7 +364,7 @@ tab_propose, tab_request, tab_saved, tab_guide = st.tabs(["오늘의 제안", "�
 
 with tab_propose:
     if st.button(f"오늘의 제안 받기 ({n}개)", type="primary"):
-        with st.status("제안 받는 중… 몇 분 걸릴 수 있어요", expanded=True) as box:
+        with model_call(), st.status("제안 받는 중… 몇 분 걸릴 수 있어요", expanded=True) as box:
             st.session_state["needed_lore"] = []
             pending = [v["request"] for v in st.session_state["items"].values() if v.get("status") == "승인 대기"]
             for chunk in batch.stream({"chapter": chapter, "n": n, "pending": pending}, {"max_concurrency": parallel},
@@ -368,23 +395,24 @@ with tab_propose:
 with tab_request:
     req = st.text_input("요청 한 줄", placeholder="예: 이장이 도사에게 뒷산의 이상한 빛을 조사해 달라고 맡기는 퀘스트")
     if st.button("작성·검수 시작", disabled=not req.strip()):
-        tid = str(uuid.uuid4())
-        with st.status("작성·검수 중…", expanded=True) as box:
-            cfg = {"configurable": {"thread_id": tid}}
-            for chunk in app.stream({"request": req.strip(), "chapter": chapter}, cfg, stream_mode="updates"):
-                for node, update in chunk.items():
-                    if isinstance(update, dict):
-                        for line in update.get("log", []):
-                            st.write(line)
-            box.update(label="완료", state="complete", expanded=False)
-        snap = app.get_state(cfg)
-        result = dict(snap.values)
-        interrupts = [i for t in snap.tasks for i in t.interrupts]
-        if interrupts:
-            result["__interrupt__"] = interrupts
-        key = f"r_{uuid.uuid4().hex[:8]}"
-        st.session_state["items"][key] = item_from_result(
-            result, {"request": req.strip(), "thread_id": tid, "source": "직접"})
+        with model_call():
+            tid = str(uuid.uuid4())
+            with st.status("작성·검수 중…", expanded=True) as box:
+                cfg = {"configurable": {"thread_id": tid}}
+                for chunk in app.stream({"request": req.strip(), "chapter": chapter}, cfg, stream_mode="updates"):
+                    for node, update in chunk.items():
+                        if isinstance(update, dict):
+                            for line in update.get("log", []):
+                                st.write(line)
+                box.update(label="완료", state="complete", expanded=False)
+            snap = app.get_state(cfg)
+            result = dict(snap.values)
+            interrupts = [i for t in snap.tasks for i in t.interrupts]
+            if interrupts:
+                result["__interrupt__"] = interrupts
+            key = f"r_{uuid.uuid4().hex[:8]}"
+            st.session_state["items"][key] = item_from_result(
+                result, {"request": req.strip(), "thread_id": tid, "source": "직접"})
     for key, item in reversed([(k, v) for k, v in st.session_state["items"].items() if v.get("source") == "직접"]):
         render_item(key, item, app)
 

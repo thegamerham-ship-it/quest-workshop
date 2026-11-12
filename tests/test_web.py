@@ -90,3 +90,15 @@ def test_variants_from_approved_quest(at, tmp_path):
     (path,) = tmp_path.glob("quest_*.json")
     res = at.session_state[f"var_{path.name}"]
     assert len(res["variants"]) == 3 and all(v["lore_ok"] for v in res["variants"])
+
+
+def test_model_quota_error_shows_notice_not_crash(at, monkeypatch):
+    from quest_workshop.llm import FakeLLM
+
+    def over_quota(*a, **k):
+        raise RuntimeError("429 RESOURCE_EXHAUSTED: quota exceeded")
+
+    monkeypatch.setattr(FakeLLM, "propose", over_quota)
+    click(at, "오늘의 제안 받기")
+    assert not at.exception
+    assert any("한도" in w.value for w in at.warning)
