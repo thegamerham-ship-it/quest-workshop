@@ -102,3 +102,36 @@ def test_model_quota_error_shows_notice_not_crash(at, monkeypatch):
     click(at, "오늘의 제안 받기")
     assert not at.exception
     assert any("한도" in w.value for w in at.warning)
+
+
+def test_one_time_quest_asks_before_variants(at, tmp_path):
+    import json
+    from tests.test_variants import one_time_quest
+    rec = one_time_quest(tmp_path / "g")
+    (tmp_path / "quest_onetime.json").write_text(json.dumps(rec, ensure_ascii=False), encoding="utf-8")
+    at.run()
+    click(at, "변형 만들기")
+    assert not at.exception
+    assert any("한 번뿐인 사건" in w.value for w in at.warning)
+    assert at.session_state["var_quest_onetime.json"]["stopped"]
+    click(at, "그래도 변형 만들기")
+    assert not at.exception
+    assert len(at.session_state["var_quest_onetime.json"]["variants"]) == 3
+
+
+def test_intro_and_cards_tabs_explain_the_app(at):
+    assert [t.label for t in at.tabs][0] == "소개"
+    text = " ".join(m.value for m in at.markdown)
+    assert "설정 카드" in text and "기획자" in text and "어긋난 액막이제" in text and "솔뫼" in text
+    assert "설정 카드 33장" in text
+
+
+def test_password_gate_also_shows_intro(tmp_path, monkeypatch):
+    monkeypatch.setenv("QUEST_LLM", "fake")
+    monkeypatch.setenv("QUEST_SAVE_DIR", str(tmp_path))
+    monkeypatch.setenv("APP_PASSWORD", "x")
+    a = st_testing.AppTest.from_file("../streamlit_app.py", default_timeout=30)
+    a.run()
+    assert not a.exception
+    text = " ".join(m.value for m in a.markdown)
+    assert "둘러보기" in text and "이 작업실은" in text and "어긋난 액막이제" in text

@@ -37,10 +37,11 @@ from quest_workshop.errors import friendly
 from quest_workshop.graph import build_graph
 from quest_workshop.llm import make_llm
 from quest_workshop.guide import add_discard, add_rule, load_rules, remove_rule
+from quest_workshop.intro import FLOW, HOW_TO, WHAT, WORLD, chapter1
 from quest_workshop.lore import load_cards, load_main_story, unlock_text
 from quest_workshop.propose import answer, build_batch_graph
 from quest_workshop.sync import local_only, pull_all
-from quest_workshop.variants import find_giver_id, giver_candidates, make_variants
+from quest_workshop.variants import find_giver_id, giver_candidates, make_variants, where
 
 st.set_page_config(page_title="천지인 퀘스트 작업실", page_icon="🖌️", layout="wide",
                    initial_sidebar_state="collapsed")
@@ -96,6 +97,8 @@ def access_mode() -> str | None:
             st.rerun()
         elif typed:
             st.error("암호가 맞지 않아요.")
+    st.divider()
+    render_intro()   # 처음 온 사람이 무엇을 하는 앱인지 먼저 알 수 있게
     return None
 
 
@@ -169,11 +172,26 @@ def render_variant_tool(path: Path, rec: dict) -> None:
                             key=f"vg_{path.name}", max_selections=5)
     key = f"var_{path.name}"
     if st.button("변형 만들기", key=f"vb_{path.name}", disabled=not picked):
-        with model_call(), st.spinner("변형 쓰고 설정 검수하는 중…"):
+        with model_call(), st.spinner("반복 적합성 보고, 변형 쓰고 설정 검수하는 중…"):
             st.session_state[key] = make_variants(llm, rec, picked, on_log=lambda *_: None)
     res = st.session_state.get(key)
     if not res:
         return
+    fit = res.get("repeat_fit") or {}
+    if fit.get("dialogue_fixed"):
+        st.info("원본 대사에 반복하면 어색한 반응이 있어서, 변형 대사에서는 피하도록 썼어요.\n\n"
+                + "\n".join(f"- {o.get('what')}" for o in fit["dialogue_fixed"]))
+    if not fit.get("ok", True):
+        st.warning("**반복 적합성: 한 번뿐인 사건이 있어요.** 반복하면 플레이어가 매번 처음 겪는 것처럼 보게 돼요.\n\n"
+                   + "\n".join(f"- {where(o)} · {o.get('what')} — {o.get('why')}" for o in fit.get("one_time", [])))
+        if res.get("stopped"):
+            st.caption("반복용으로는 퇴치·수집처럼 단순한 퀘스트가 잘 맞아요. 그래도 만들어 볼 수 있어요.")
+            if st.button("그래도 변형 만들기", key=f"vf_{path.name}", disabled=not picked):
+                with model_call(), st.spinner("변형 쓰고 설정 검수하는 중…"):
+                    st.session_state[key] = make_variants(llm, rec, picked, on_log=lambda *_: None,
+                                                          force=True, fit=fit)
+                    st.rerun()
+            return
     for e in res.get("errors", []):
         st.error(f"{e['giver']} 변형 실패 · {friendly(e['error'])}")
         st.caption(e["error"])
@@ -199,6 +217,57 @@ def render_variant_tool(path: Path, rec: dict) -> None:
                     st.warning(prob)
     st.download_button("변형 JSON 내려받기", json.dumps(res, ensure_ascii=False, indent=2),
                        file_name=f"variants_{path.stem}.json", mime="application/json", key=f"vdl_{path.name}")
+
+
+# ---------------------------------------------------------------- 소개·설정 카드
+
+def render_intro() -> None:
+    """처음 온 사람용: 이 앱이 무엇을 하는지, 쓰는 법, 배경 세계와 1장."""
+    st.markdown("#### 이 작업실은")
+    st.markdown(WHAT)
+    kinds = ["", "ai", "ai", "me", ""]
+    boxes = '<span class="arrow">→</span>'.join(f'<div class="box {k}">{t}</div>' for t, k in zip(FLOW, kinds))
+    st.markdown(f'<div class="cj-flow">{boxes}</div>', unsafe_allow_html=True)
+    st.caption("파란 칸은 AI, 노란 칸은 사람이에요. AI는 카드에 없는 설정을 지어내지 않고, 모르면 멈춰서 기획자에게 물어요.")
+
+    left, right = st.columns(2, gap="large")
+    with left:
+        st.markdown("#### 쓰는 법")
+        for i, (tab, text) in enumerate(HOW_TO, 1):
+            st.markdown(f"**{i}. {tab}** · {text}")
+        st.caption("처음이면 '오늘의 제안' 탭에서 제안 개수를 2~3개로 줄이고 버튼을 눌러 보세요. 몇 분 걸릴 수 있어요.")
+    with right:
+        st.markdown("#### 배경 세계")
+        st.markdown(WORLD)
+        ch = chapter1(load_cards())
+        st.markdown("#### 1장")
+        for key in ("stage", "hero", "start"):
+            title, text = ch[key]
+            st.markdown(f"**{title}** · {text}")
+        st.markdown("**1장 메인 줄거리** · 메인 퀘스트가 맡는 사건이에요. 이 작업실은 그 사이 마을에서 벌어지는 "
+                    "일일·서브 퀘스트를 만들고, 아래 사건은 다시 쓰지 않아요.")
+        for i, (title, summary) in enumerate(ch["beats"], 1):
+            st.markdown(f'<div class="cj-beat"><b>{i}. {title}</b><br><span class="cj-meta">{summary}</span></div>',
+                        unsafe_allow_html=True)
+
+
+CARD_TYPES = ["인물", "장소", "사건", "생물", "적", "아이템", "규칙"]
+
+
+def render_cards() -> None:
+    cards = list(load_cards().values())
+    st.markdown(f"AI가 퀘스트를 쓸 때 근거로 삼는 **설정 카드 {len(cards)}장**이에요. "
+                "퀘스트의 단계·대사에 붙은 번호(예: `char_jumo_01`)가 이 카드를 가리켜요.")
+    order = CARD_TYPES + sorted({c.type for c in cards} - set(CARD_TYPES))
+    for t in order:
+        group = [c for c in cards if c.type == t]
+        if not group:
+            continue
+        with st.expander(f"{t} · {len(group)}장", expanded=(t == "인물")):
+            for c in group:
+                chs = ", ".join(f"{x}장" for x in c.chapters)
+                st.markdown(f"**{c.title}** <span class='cj-meta'>`{c.card_id}` · {chs}</span>  \n{c.text}",
+                            unsafe_allow_html=True)
 
 
 # ---------------------------------------------------------------- 그리기
@@ -321,6 +390,12 @@ header[data-testid="stHeader"] {display: none;}
 .cj-no {background:#E4E0D8; color:#5A554C;} .cj-warn {background:#F2D0CB; color:#7A2418;}
 .cj-gap {background:#D3DFEC; color:#22405E;}
 .cj-meta {color:#6B655C; font-size:.85rem;}
+.cj-flow {display:flex; flex-wrap:wrap; align-items:center; gap:.4rem; margin:.5rem 0 1rem;}
+.cj-flow .box {background:#FFFDF8; border:1px solid #D9D2C1; border-radius:10px; padding:.55rem .8rem;
+               font-weight:600; color:#303F52; white-space:pre-line; text-align:center; font-size:.9rem;}
+.cj-flow .box.ai {background:#E7EEF5;} .cj-flow .box.me {background:#F3E3B5;}
+.cj-flow .arrow {color:#9A9285; font-weight:700;}
+.cj-beat {border-left:3px solid #D1A538; padding:.1rem 0 .1rem .8rem; margin:.35rem 0;}
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
@@ -360,7 +435,11 @@ st.markdown(f'<div class="cj-meta">지금 모델 <b>{llm.name}</b> · 저장 폴
 st.session_state.setdefault("items", {})
 st.session_state.setdefault("needed_lore", [])
 
-tab_propose, tab_request, tab_saved, tab_guide = st.tabs(["오늘의 제안", "요청 직접 넣기", "승인된 퀘스트", "기획 지침"])
+tab_intro, tab_propose, tab_request, tab_saved, tab_guide, tab_cards = st.tabs(
+    ["소개", "오늘의 제안", "요청 직접 넣기", "승인된 퀘스트", "기획 지침", "설정 카드"])
+
+with tab_intro:
+    render_intro()
 
 with tab_propose:
     if st.button(f"오늘의 제안 받기 ({n}개)", type="primary"):
@@ -456,3 +535,6 @@ with tab_guide:
     if st.button("추가", disabled=not new_rule.strip()):
         add_rule(save_dir, new_rule, source="직접 추가")
         st.rerun()
+
+with tab_cards:
+    render_cards()

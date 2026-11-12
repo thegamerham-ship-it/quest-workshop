@@ -8,8 +8,11 @@
 LangGraph · Gemini · Streamlit · pytest.
 
 - 웹 데모: https://cheonjiin-quest.streamlit.app/ → **둘러보기 시작**을 누르면 암호 없이 들어간다.
+  - 첫 화면과 '소개' 탭에서 이 작업실이 하는 일, 쓰는 법, 배경 세계와 1장 줄거리를 먼저 볼 수 있다. '설정 카드' 탭에는 AI가 근거로 삼는 카드 33장이 있다.
   - 둘러보기: 가짜 모델로 제안 → 작성 → 두 검수 → 승인 흐름을 직접 눌러 볼 수 있다. "승인된 퀘스트" 탭에서는 승인한 퀘스트로 반복 퀘스트 변형(의뢰인·대사만 바꾼 버전)을 만들어 원본과 나란히 볼 수 있다.
   - 실제 Gemini 호출은 API 비용 때문에 암호가 걸려 있다.
+
+![퀘스트 작업실 소개 화면](assets/intro.png)
 
 ## 왜 만들었나
 
@@ -70,6 +73,32 @@ flowchart TD
 
 1차 뒤 고친 것: 작성자는 뼈대가 비었을 때만 질문하고 보상은 가안으로 채운다. 요청과 카드가 부딪히면 카드가 우선이다. 요청 문장 자체의 뒷장 요소도 코드가 검사해 "요청에서 바꾼 점"으로 보여 준다.
 
+### 검수자를 붙이면 정말 나아지나: A/B/C 비교 (Gemini, 2회)
+
+같은 요청 5개를 세 구성으로 두 번씩 돌렸다(`quest_workshop/compare.py`).
+
+| 구성 | 1회 | 2회 | 합계 | 모델 호출(1회 / 2회) |
+|---|---|---|---|---|
+| A 작성자만 | 3/5 | 4/5 | **7/10** | 5 / 5 |
+| B 설정 검수 + 재작성 1회 | 5/5 | 4/5 | **9/10** | 14 / 12 |
+| C 설정·기획 두 검수자 + 판정 | 5/5 | 5/5 | **10/10** | 18 / 21 |
+
+- A는 두 번 모두 2장 요소(기계 동료)가 들어간 요청을 멈추지 않고 내보냈고, 바닷가 요청에서는 카드에 없는 전개를 지어낸 채 내보낸 적이 있다.
+- B는 2회에서 바닷가 요청을 놓쳤다. "기사가 떨어질 때 갑옷 부속이 개울에 흩어졌다"는, 카드에 없는 내력을 설정 검수자가 통과시켰다.
+- C는 두 번 모두 기대대로 끝났고, 기획 의견(목표·진행·말투)도 함께 냈다.
+- **검수자를 늘릴수록 안정적이다(7 → 9 → 10). 대신 모델 호출이 2.5~4배 든다.** 품질과 비용 사이의 선택을 기획자가 표로 보고 고를 수 있게 했다. (요청 5개 × 2회라 경향을 보여 주는 정도다.)
+
+### 반복 퀘스트 변형: 같은 퀘스트를 다른 의뢰인으로
+
+게임의 일일 퀘스트처럼 같은 일을 여러 번 해도 덜 지루하게, 승인된 퀘스트 하나에서 **단계·보상·열림 조건은 그대로 두고 의뢰인·대사만 바꾼 변형 3개**를 만든다(`quest_workshop/variants.py`). 게임 데이터로는 진행 조건을 재사용하고 NPC와 대사만 늘어나는 셈이다. 기획자가 원본과 변형을 이어 읽고 판정했다.
+
+| 판정 | 원본 | 결과 | 원인 → 고친 것 |
+|---|---|---|---|
+| 1차 | 약초밭 퀘스트 (메인 단서 '이상한 쇳조각'을 줍는 단계 포함) | 1/3 | ① 반복하면 매번 같은 단서를 처음 줍게 된다 → **반복 적합성 검사**: 변형 전에 한 번뿐인 사건(메인 단서, 고유 아이템, 첫 만남)을 찾아 단계에 있으면 멈추고 알린다. 대사에만 있으면 새 대사에서 피하게 한다 ② 이름만 바꿔 주모·이장이 남의 약초밭에서 근심한다 → **의뢰인과 장소 관계**: 장소의 주인은 카드대로 두고, 새 의뢰인은 자기 자리(주막·장터)에서 부탁한다 |
+| 2차 | 장터 어둑시니 퇴치 | **3/3** | 설정 검수 3/3, 골격 유지 3/3, 대사 겹침 0.09~0.16. 대사도 "처음 나타났다"가 아니라 "또 나왔다"로 바뀌었다 |
+
+숫자(설정 검수, 골격, 대사 겹침)는 1차에서도 다 통과했다. 어색함은 기획자가 읽고서야 보였고, 그 판단을 검사로 옮긴 것이 2차다.
+
 ### 제안 에이전트: 하루 5개가 겹치지 않고 나오나
 
 | 실행 | 설정 카드 | 결과 |
@@ -91,7 +120,7 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
 python -m quest_workshop.run --demo --llm fake   # API 키 없이 테스트 요청 5개 자동 실행
-python -m pytest -q                               # 테스트 62개
+python -m pytest -q                               # 테스트 69개
 streamlit run streamlit_app.py                    # 웹 화면
 ```
 
@@ -101,7 +130,7 @@ streamlit run streamlit_app.py                    # 웹 화면
 python -m quest_workshop.run "이장이 도사에게 뒷산의 이상한 빛을 조사해 달라고 맡기는 퀘스트"
 python -m quest_workshop.run --propose 5     # 오늘의 요청 5개 → 각각 작성·검수 → 하나씩 승인
 python -m quest_workshop.compare --llm gemini   # A/B/C 비교: 작성자만 / 설정 검수 / 두 검수자. 결과는 output/compare/
-python -m quest_workshop.variants output/quests/quest_xxx.json --llm gemini   # 반복 퀘스트 변형 3개. 결과는 output/variants/
+python -m quest_workshop.variants output/quests/quest_xxx.json --llm gemini   # 반복 퀘스트 변형 3개(반복 적합성에서 걸리면 --force). 결과는 output/variants/
 ```
 
 가짜 모델(`--llm fake`)은 흐름 확인용이다. 정해진 답을 돌려주고, 설정 검수는 코드 검사만 한다. 뜻까지 보는 검수는 Gemini 모드에서 한다.
@@ -153,10 +182,12 @@ python -m quest_workshop.variants output/quests/quest_xxx.json --llm gemini   # 
 | `quest_workshop/guide.py` | 기획자 지침: 거절·고쳐 쓰기 때 준 의견을 쌓아 이후 제안·작성·검수에 반영 |
 | `quest_workshop/sync.py` | 웹 서버가 재시작해도 승인 퀘스트가 남도록 GitHub `quest-data` 브랜치에 저장 |
 | `quest_workshop/compare.py` | A/B/C 비교: 같은 요청을 작성자만 / 설정 검수+재작성 / 두 검수자+판정으로 돌려 결과·호출 수를 표로 |
-| `quest_workshop/variants.py` | 반복 퀘스트 변형: 단계·보상·열림 조건은 그대로, 의뢰인·대사만 새로. 설정 검수·골격 유지·대사 겹침 점검 |
+| `quest_workshop/variants.py` | 반복 퀘스트 변형: 단계·보상·열림 조건은 그대로, 의뢰인·대사만 새로. 반복 적합성 검사, 설정 검수·골격 유지·대사 겹침 점검 |
+| `quest_workshop/intro.py` | 웹 소개 글. 1장 무대·주인공·메인 줄거리는 설정 카드와 메인 사건 데이터에서 가져온다 |
+| `quest_workshop/errors.py` | 모델 오류(한도 초과·키 문제·응답 없음)를 기획자가 읽을 안내 문구로 |
 | `quest_workshop/run.py` | 터미널 실행과 데모 |
-| `streamlit_app.py` | 웹 화면: 오늘의 제안 / 요청 직접 넣기 / 승인된 퀘스트(반복 퀘스트 변형 만들기) |
-| `tests/` | pytest 62개. 가짜 모델로 모든 경로(approved, rejected, needs_review, lore_gap)를 확인 |
+| `streamlit_app.py` | 웹 화면: 소개 / 오늘의 제안 / 요청 직접 넣기 / 승인된 퀘스트(반복 퀘스트 변형) / 기획 지침 / 설정 카드 |
+| `tests/` | pytest 69개. 가짜 모델로 모든 경로(approved, rejected, needs_review, lore_gap)를 확인 |
 
 ## AI와 함께 만든 방식
 
