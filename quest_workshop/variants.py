@@ -2,9 +2,14 @@
 
 게임 데이터로 보면 단계(진행 조건)·보상·열림 조건은 그대로 재사용하고, 의뢰 NPC와 대사만 바뀐 행이 늘어난다.
 
+변형 전에
+  - 반복 적합성: 원본에 '한 번뿐인 사건'(메인 단서 발견, 고유 아이템, 첫 만남)이 있으면 멈추고 알린다.
+    반복하면 플레이어가 매번 같은 단서를 처음 보는 것처럼 줍게 되기 때문. 기획자가 그래도 만들기(--force)를 고를 수 있다.
+
 변형마다 점검
   - 설정 검수: 코드 검사 + AI 설정 검수(작업실과 같은 기준)
-  - 골격 유지: 단계 수·순서가 같고, 의뢰인 카드 말고는 근거 카드가 같은가(데이터 재사용이 되는가)
+  - 골격 유지: 단계 수·순서가 같고, 근거 카드가 같은가(데이터 재사용이 되는가).
+    의뢰인이 나오는 단계는 새 의뢰인의 자리(주막·장터 등)에서 만나도록 장소 카드가 바뀌어도 된다.
   - 대사 겹침: 원본·다른 변형과 대사가 거의 같은가(이름만 바꾼 복사면 유저가 금방 알아챈다)
   - 거슬리지 않는가: 사람(기획자)이 나란히 읽고 판단한다
 
@@ -26,6 +31,11 @@ from .propose import similarity
 
 NOT_GIVERS = {"char_dosa_01", "char_knight_01", "char_officials_01"}  # 주인공, 1장엔 말이 안 통하는 기사, 기관
 SAME_LINES = 0.6   # 대사 전체가 이만큼 겹치면 '이름만 바꾼 복사'로 본다
+
+
+def where(o: dict) -> str:
+    """반복 적합성 항목의 위치. 단계 번호가 0이면 대사."""
+    return f"{o.get('step')}단계" if o.get("step") else "대사"
 
 
 def giver_candidates(cards: dict[str, Card], chapter: int, exclude: str = "") -> list[Card]:
@@ -54,19 +64,41 @@ def skeleton_issues(base: dict, var: dict, old_id: str, new_id: str) -> list[str
     for b, v in zip(bs, vs):
         want = {new_id if r == old_id else r for r in b.get("lore_refs", [])}
         got = set(v.get("lore_refs", []))
-        if (want - {new_id}) != (got - {new_id}):
+        ignore = {new_id}
+        if old_id and old_id in b.get("lore_refs", []):   # 의뢰인 단계: 만나는 자리(장소)와 원래 주인 언급은 바뀌어도 된다
+            ignore |= {old_id} | {r for r in want | got if r.startswith("place_")}
+        if (want - ignore) != (got - ignore):
             out.append(f"{b.get('order')}단계 근거 카드가 바뀜: {sorted(want)} → {sorted(got)}")
     return out
 
 
 def make_variants(llm, record: dict, giver_ids: list[str] | None = None, n: int = 3,
-                  cards: dict[str, Card] | None = None, on_log=print) -> dict:
+                  cards: dict[str, Card] | None = None, on_log=print,
+                  force: bool = False, fit: dict | None = None) -> dict:
+    """force=False면 반복 적합성에서 걸릴 때 변형을 만들지 않고 멈춘다. fit을 주면 검사를 다시 하지 않는다."""
     cards = cards or load_cards()
     base = record["draft"]
     chapter = record.get("chapter", 1)
     beats = [b for b in load_main_story() if b.get("chapter") == chapter]
     guide = {"main_beats": [{"beat_id": b["beat_id"], "title": b["title"], "summary": b["summary"]} for b in beats]}
     old_id = find_giver_id(base, cards)
+    if fit is None:
+        fit = llm.repeat_check(base, [c.for_reviewer() for c in cards.values()], chapter, guide=guide)
+    # 단계는 변형에 그대로 복사되므로 막는다. 대사는 변형이 새로 쓰므로 막지 않고 작성 지시로 넘긴다.
+    blocking = [o for o in fit.get("one_time", []) if o.get("step")]
+    talk = [o for o in fit.get("one_time", []) if not o.get("step")]
+    if talk:
+        guide["dialogue_avoid"] = [f"{o.get('what')} — {o.get('why')}" for o in talk]
+    if not fit.get("ok", True):
+        on_log("[반복 적합성] 한 번뿐인 사건: " + "; ".join(f"{where(o)} {o.get('what')}" for o in fit.get("one_time", [])))
+    if blocking:
+        if not force:
+            return {"base_giver_card_id": old_id, "base": base, "request": record.get("request", ""),
+                    "variants": [], "errors": [], "repeat_fit": fit, "stopped": True}
+    else:
+        fit = {**fit, "ok": True}   # 대사만 걸렸으면 통과(새 대사에서 피하게 함). 원래 항목은 dialogue_fixed로 남긴다
+        if talk:
+            fit = {**fit, "one_time": [], "dialogue_fixed": talk}
     pool = giver_candidates(cards, chapter, exclude=old_id)
     chosen = [cards[i] for i in giver_ids if i in cards] if giver_ids else pool[:n]
     out, errors = [], []
@@ -97,7 +129,7 @@ def make_variants(llm, record: dict, giver_ids: list[str] | None = None, n: int 
         on_log(f"[변형] {v['draft']['giver']}: 설정 {'통과' if v['lore_ok'] else '문제'}, "
                f"골격 {'유지' if not v['skeleton_issues'] else '바뀜'}, 대사 겹침 {v['max_line_similarity']}")
     return {"base_giver_card_id": old_id, "base": base, "request": record.get("request", ""), "variants": out,
-            "errors": errors}
+            "errors": errors, "repeat_fit": fit, "stopped": False}
 
 
 def to_markdown(result: dict) -> str:
@@ -109,6 +141,13 @@ def to_markdown(result: dict) -> str:
         ls += [f"> **{l.get('speaker')}**: {l.get('line')}" for l in d.get("dialogue", [])]
         return ls
     md = [f"# 반복 퀘스트 변형: {result['base'].get('title', '')}", "", "## 원본", ""] + block(result["base"])
+    fit = result.get("repeat_fit") or {}
+    if not fit.get("ok", True):
+        md += ["", "## 반복 적합성: 한 번뿐인 사건이 있음", ""]
+        md += [f"- {where(o)} · {o.get('what')} — {o.get('why')}" for o in fit.get("one_time", [])]
+        if result.get("stopped"):
+            md += ["", "변형을 만들지 않았어요. 반복용으로 단순한 원본(퇴치·수집)을 고르거나, 그래도 만들려면 --force."]
+            return "\n".join(md) + "\n"
     md += ["", "## 점검", "", "| 의뢰인 | 설정 검수 | 골격 유지 | 대사 겹침(0~1) |", "|---|---|---|---|"]
     for v in result["variants"]:
         md.append(f"| {v['draft']['giver']} | {'통과' if v['lore_ok'] else '문제'} | "
@@ -131,6 +170,7 @@ def main(argv=None) -> int:
     p.add_argument("--givers", default="", help="새 의뢰인 카드 번호, 쉼표로. 비우면 앞에서 3명")
     p.add_argument("--n", type=int, default=3)
     p.add_argument("--out", default="output/variants")
+    p.add_argument("--force", action="store_true", help="반복 적합성에서 걸려도 변형을 만든다")
     a = p.parse_args(argv)
     try:
         from dotenv import load_dotenv
@@ -138,7 +178,7 @@ def main(argv=None) -> int:
     except ImportError:
         pass
     record = json.loads(Path(a.quest).read_text(encoding="utf-8"))
-    result = make_variants(make_llm(a.llm), record, [g for g in a.givers.split(",") if g] or None, a.n)
+    result = make_variants(make_llm(a.llm), record, [g for g in a.givers.split(",") if g] or None, a.n, force=a.force)
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d_%H%M%S")

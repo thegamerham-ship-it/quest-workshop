@@ -88,10 +88,21 @@ class Proposals(BaseModel):
     )
 
 
+class OneTime(BaseModel):
+    step: int = Field(description="단계 번호. 대사에 있으면 0")
+    what: str = Field(description="한 번뿐이어야 하는 것. 예: 이상한 쇳조각을 처음 발견해 챙긴다")
+    why: str = Field(description="반복하면 왜 어색한지. 예: 메인 단서인데 매번 처음 보는 것처럼 줍게 된다")
+
+
+class RepeatFit(BaseModel):
+    ok: bool = Field(description="여러 번 반복해도 어색하지 않으면 true")
+    one_time: list[OneTime] = Field(default_factory=list, description="반복하면 어색해지는 한 번뿐인 사건. ok면 빈 목록")
+
+
 class Variant(BaseModel):
     title: str = Field(description="변형 퀘스트 제목. 원본과 겹치지 않게")
     summary: str = Field(description="한두 줄 요약")
     giver: str = Field(description="새 의뢰인(주어진 인물 카드의 title)")
     motive: str = Field(description="이 의뢰인이 왜 이 일을 부탁하는지 한 줄. 카드의 성격·고민거리에서")
-    steps: list[Step] = Field(description="원본과 같은 개수·순서·행동·완료 조건. 의뢰인이 나오는 부분만 바꾼다")
+    steps: list[Step] = Field(description="원본과 같은 개수·순서·행동·완료 조건. 의뢰인이 나오는 단계는 새 의뢰인의 처지·자리에 맞게 고친다")
     dialogue: list[Line] = Field(description="새 의뢰인 말투로 새로 쓴 대사. 원본 대사를 이름만 바꿔 옮기지 않는다")

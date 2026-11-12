@@ -10,7 +10,7 @@ import json
 import os
 from typing import Protocol
 
-from .schemas import Draft, PlanReview, Proposals, Review, Variant
+from .schemas import Draft, PlanReview, Proposals, RepeatFit, Review, Variant
 
 
 class QuestLLM(Protocol):
@@ -33,6 +33,10 @@ class QuestLLM(Protocol):
     def variant(self, base: dict, giver_card: dict, chapter: int, others: list[dict],
                 guide: dict | None = None) -> dict:
         """반복 퀘스트 변형: {title, summary, giver, motive, steps, dialogue}. 골격은 원본 그대로, 의뢰인·대사만 새로."""
+        ...
+
+    def repeat_check(self, base: dict, cards: list[dict], chapter: int, guide: dict | None = None) -> dict:
+        """반복 적합성: {"ok": bool, "one_time": [{step, what, why}]}. 매번 하면 어색한 한 번뿐인 사건을 찾는다."""
         ...
 
 
@@ -123,6 +127,16 @@ class FakeLLM:
     def review(self, draft, cards, chapter, guide=None):
         return {"verdict": "문제없음", "issues": []}
 
+    ONE_TIME_WORDS = ("처음", "이상한", "낯선", "정체 모를")
+
+    def repeat_check(self, base, cards, chapter, guide=None):
+        """가짜: '발견'하는 단계에 처음·이상한·낯선 같은 말이 붙으면 한 번뿐인 단서로 본다."""
+        hits = [{"step": s.get("order", 0), "what": s.get("text", ""),
+                 "why": "단서를 발견하는 단계라 반복하면 매번 처음 보는 것처럼 줍게 된다"}
+                for s in base.get("steps", [])
+                if "발견" in s.get("text", "") and any(w in s.get("text", "") for w in self.ONE_TIME_WORDS)]
+        return {"ok": not hits, "one_time": hits}
+
     def variant(self, base, giver_card, chapter, others, guide=None):
         old, new = base.get("giver", ""), giver_card["title"]
         first = giver_card["text"].split(".")[0].strip()
@@ -172,6 +186,9 @@ def guide_block(guide: dict | None) -> str:
                    + "\n".join(f"- {r}" for r in guide["discarded"]))
     if guide.get("human_feedback"):
         out.append(f"이 퀘스트에 기획자가 준 의견(가장 우선한다)\n- {guide['human_feedback']}")
+    if guide.get("dialogue_avoid"):
+        out.append("원본 대사에서 반복하면 어색한 부분(새 대사에서는 처음 겪는 듯한 놀람 대신, 요즘 계속되는 일로 쓴다)\n"
+                   + "\n".join(f"- {r}" for r in guide["dialogue_avoid"]))
     return "\n\n" + "\n\n".join(out) + "\n" if out else ""
 
 
@@ -295,9 +312,17 @@ VARIANT_PROMPT = """너는 게임 퀘스트 기획자다. 이미 승인된 {chap
 게임에서 같은 반복 퀘스트(예: 마을 밖 요괴 수 줄이기)를 매일 하더라도, 의뢰인과 대사가 바뀌면 덜 지루하다.
 
 반드시 지킬 것(골격 유지: 게임 데이터를 재사용하기 위해서다)
-- 단계(steps)의 개수·순서·플레이어 행동·끝나는 조건은 원본과 같다. 의뢰인이 나오는 부분만 새 의뢰인으로 바꾼다.
-- 각 단계의 lore_refs는 원본과 같게 두되, 원본 의뢰인 카드 번호는 새 의뢰인 카드 번호({giver_id})로 바꾼다.
-- 장소·적·아이템을 바꾸지 않는다. 보상과 열림 조건은 코드가 원본 그대로 붙이므로 쓰지 않는다.
+- 단계(steps)의 개수·순서·플레이어 행동·끝나는 조건은 원본과 같다.
+- 의뢰인이 나오지 않는 단계는 원본 문장과 lore_refs를 그대로 둔다. 장소·적·아이템을 바꾸지 않는다.
+- 보상과 열림 조건은 코드가 원본 그대로 붙이므로 쓰지 않는다.
+
+의뢰인이 나오는 단계(사정을 듣는 단계, 돌아가 보고하는 단계): 이름만 갈아 끼우지 말고 새 의뢰인의 처지에 맞게 고친다.
+- 장소·물건의 주인은 카드대로 둔다. 원본 의뢰인이 그 장소의 주인이었어도(예: 약초꾼이 가꾸는 약초밭) 새 의뢰인은 주인이 아니다.
+  새 의뢰인은 그 일로 자기 일에 손해를 보거나, 소문을 듣고 걱정하는 사람이다. 그 관계를 motive와 대사에 드러낸다.
+- 새 의뢰인은 카드에 적힌 자기 자리(예: 주모는 주막, 상인은 장터)에서 만나는 것이 자연스럽다.
+  이때 그 단계의 장소 카드 번호를 새 자리의 장소 카드로 바꿔도 된다. 카드에 자리가 없으면 원본 장소를 둔다.
+- 플레이어 행동(대화로 사정을 듣는다, 돌아가 보고한다)과 끝나는 조건은 그대로다.
+- lore_refs의 원본 의뢰인 카드 번호는 새 의뢰인 카드 번호({giver_id})로 바꾼다.
 
 새로 쓸 것
 - motive: 새 의뢰인이 왜 이 일을 부탁하는지. 새 의뢰인 카드의 성격·고민거리에서 찾는다. 카드에 없는 내력을 지어내지 않는다.
@@ -314,6 +339,24 @@ VARIANT_PROMPT = """너는 게임 퀘스트 기획자다. 이미 승인된 {chap
 
 이미 만든 다른 변형(이것들과 대사·제목이 겹치지 않게)
 {others}"""
+
+
+REPEAT_CHECK_PROMPT = """너는 게임 퀘스트 기획자다. 이미 승인된 {chapter}장 퀘스트를 반복 퀘스트(일일 퀘스트처럼 여러 번 하는 퀘스트)로 써도 되는지 본다.
+플레이어가 같은 단계와 대사를 여러 번 겪어도 어색하지 않아야 한다.
+
+한 번뿐이어야 하는 것(있으면 one_time에 적는다)
+- 메인 스토리의 단서·떡밥: 카드에 '처음 발견', '본 적 없는', '정체를 모른다'처럼 적힌 물건이나 현상을 줍거나 알아내는 단계
+- 고유한 물건을 얻는 단계, 인물과 처음 만나거나 관계가 바뀌는 장면, 세계가 바뀌는 사건
+- 대사가 위 사건을 처음 겪는 반응(놀람, 처음 보는 물건)으로 짜여 있는 경우(step은 0)
+
+반복해도 되는 것: 산짐승·요괴 쫓기, 약초 캐기 같은 수집, 배달, 순찰, 이미 알려진 일의 뒷수습.
+단계마다 하나씩 보고, 한 번뿐인 것이 하나도 없으면 ok=true, 있으면 ok=false.
+{guide}
+설정 카드
+{cards}
+
+퀘스트
+{base}"""
 
 
 class GeminiLLM:
@@ -334,6 +377,7 @@ class GeminiLLM:
         self.planner = ChatGoogleGenerativeAI(model=model, api_key=key, temperature=0, **opts).with_structured_output(PlanReview)
         self.proposer = ChatGoogleGenerativeAI(model=model, api_key=key, temperature=0.9, **opts).with_structured_output(Proposals)
         self.varier = ChatGoogleGenerativeAI(model=model, api_key=key, temperature=0.8, **opts).with_structured_output(Variant)
+        self.repeat = ChatGoogleGenerativeAI(model=model, api_key=key, temperature=0, **opts).with_structured_output(RepeatFit)
 
     def write(self, request, cards, chapter, feedback, previous, guide=None):
         fb = ""
@@ -377,6 +421,15 @@ class GeminiLLM:
                 return out.model_dump()
         raise RuntimeError("모델이 변형을 형식에 맞게 돌려주지 않았어요")
 
+    def repeat_check(self, base, cards, chapter, guide=None):
+        prompt = REPEAT_CHECK_PROMPT.format(chapter=chapter, guide=guide_block(guide),
+                                            cards=json.dumps(cards, ensure_ascii=False, indent=1),
+                                            base=json.dumps(base, ensure_ascii=False, indent=1))
+        out = self.repeat.invoke(prompt)
+        if out is None:
+            raise RuntimeError("모델이 반복 적합성 결과를 형식에 맞게 돌려주지 않았어요")
+        return out.model_dump()
+
 
 def make_llm(kind: str = "auto") -> QuestLLM:
     """auto: 키가 있으면 Gemini, 없으면 가짜."""
@@ -385,3 +438,4 @@ def make_llm(kind: str = "auto") -> QuestLLM:
     if kind == "gemini" or (kind == "auto" and (os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"))):
         return GeminiLLM()
     return FakeLLM()
+
