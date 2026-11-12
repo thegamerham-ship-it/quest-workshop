@@ -8,7 +8,7 @@
 LangGraph · Gemini · Streamlit · pytest.
 
 - 웹 데모: https://cheonjiin-quest.streamlit.app/ → **둘러보기 시작**을 누르면 암호 없이 들어간다.
-  - 둘러보기: 가짜 모델로 제안 → 작성 → 두 검수 → 승인 흐름을 직접 눌러 볼 수 있다. "승인된 퀘스트" 탭에는 실제 Gemini로 만든 퀘스트가 있다.
+  - 둘러보기: 가짜 모델로 제안 → 작성 → 두 검수 → 승인 흐름을 직접 눌러 볼 수 있다. "승인된 퀘스트" 탭에서는 승인한 퀘스트로 반복 퀘스트 변형(의뢰인·대사만 바꾼 버전)을 만들어 원본과 나란히 볼 수 있다.
   - 실제 Gemini 호출은 API 비용 때문에 암호가 걸려 있다.
 
 ## 왜 만들었나
@@ -91,7 +91,7 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
 python -m quest_workshop.run --demo --llm fake   # API 키 없이 테스트 요청 5개 자동 실행
-python -m pytest -q                               # 테스트 53개
+python -m pytest -q                               # 테스트 59개
 streamlit run streamlit_app.py                    # 웹 화면
 ```
 
@@ -100,6 +100,8 @@ streamlit run streamlit_app.py                    # 웹 화면
 ```bash
 python -m quest_workshop.run "이장이 도사에게 뒷산의 이상한 빛을 조사해 달라고 맡기는 퀘스트"
 python -m quest_workshop.run --propose 5     # 오늘의 요청 5개 → 각각 작성·검수 → 하나씩 승인
+python -m quest_workshop.compare --llm gemini   # A/B/C 비교: 작성자만 / 설정 검수 / 두 검수자. 결과는 output/compare/
+python -m quest_workshop.variants output/quests/quest_xxx.json --llm gemini   # 반복 퀘스트 변형 3개. 결과는 output/variants/
 ```
 
 가짜 모델(`--llm fake`)은 흐름 확인용이다. 정해진 답을 돌려주고, 설정 검수는 코드 검사만 한다. 뜻까지 보는 검수는 Gemini 모드에서 한다.
@@ -150,9 +152,11 @@ python -m quest_workshop.run --propose 5     # 오늘의 요청 5개 → 각각 
 | `quest_workshop/propose.py` | 제안 에이전트. 요청 N개 → `Send`로 동시에 작성·검수 → 승인 대기 목록 |
 | `quest_workshop/guide.py` | 기획자 지침: 거절·고쳐 쓰기 때 준 의견을 쌓아 이후 제안·작성·검수에 반영 |
 | `quest_workshop/sync.py` | 웹 서버가 재시작해도 승인 퀘스트가 남도록 GitHub `quest-data` 브랜치에 저장 |
+| `quest_workshop/compare.py` | A/B/C 비교: 같은 요청을 작성자만 / 설정 검수+재작성 / 두 검수자+판정으로 돌려 결과·호출 수를 표로 |
+| `quest_workshop/variants.py` | 반복 퀘스트 변형: 단계·보상·열림 조건은 그대로, 의뢰인·대사만 새로. 설정 검수·골격 유지·대사 겹침 점검 |
 | `quest_workshop/run.py` | 터미널 실행과 데모 |
-| `streamlit_app.py` | 웹 화면: 오늘의 제안 / 요청 직접 넣기 / 승인된 퀘스트 |
-| `tests/` | pytest 53개. 가짜 모델로 모든 경로(approved, rejected, needs_review, lore_gap)를 확인 |
+| `streamlit_app.py` | 웹 화면: 오늘의 제안 / 요청 직접 넣기 / 승인된 퀘스트(반복 퀘스트 변형 만들기) |
+| `tests/` | pytest 59개. 가짜 모델로 모든 경로(approved, rejected, needs_review, lore_gap)를 확인 |
 
 ## AI와 함께 만든 방식
 

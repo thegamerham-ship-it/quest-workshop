@@ -79,3 +79,14 @@ def test_browse_without_password(tmp_path, monkeypatch):
     assert not a.exception
     assert len(list(Path(browse).glob("quest_*.json"))) == 2
     assert [p.name for p in real.glob("quest_*.json")] == ["quest_real.json"]
+
+
+def test_variants_from_approved_quest(at, tmp_path):
+    click(at, "오늘의 제안 받기")
+    click(at, "승인")
+    at.run()
+    click(at, "변형 만들기")
+    assert not at.exception
+    (path,) = tmp_path.glob("quest_*.json")
+    res = at.session_state[f"var_{path.name}"]
+    assert len(res["variants"]) == 3 and all(v["lore_ok"] for v in res["variants"])

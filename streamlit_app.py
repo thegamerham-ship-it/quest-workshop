@@ -37,6 +37,7 @@ from quest_workshop.guide import add_discard, add_rule, load_rules, remove_rule
 from quest_workshop.lore import load_cards, load_main_story, unlock_text
 from quest_workshop.propose import answer, build_batch_graph
 from quest_workshop.sync import local_only, pull_all
+from quest_workshop.variants import find_giver_id, giver_candidates, make_variants
 
 st.set_page_config(page_title="천지인 퀘스트 작업실", page_icon="🖌️", layout="wide",
                    initial_sidebar_state="collapsed")
@@ -131,6 +132,44 @@ def item_from_result(result: dict, base: dict) -> dict:
                     plan_review=result.get("plan_review", item.get("plan_review", {})),
                     lore_gaps=result.get("lore_gaps", []), saved_path=result.get("saved_path", ""))
     return item
+
+
+# ---------------------------------------------------------------- 반복 퀘스트 변형
+
+def render_variant_tool(path: Path, rec: dict) -> None:
+    """승인된 퀘스트 하나에서 의뢰인·대사만 바꾼 변형을 만들어 나란히 보여 준다."""
+    cards = load_cards()
+    pool = giver_candidates(cards, rec.get("chapter", 1), exclude=find_giver_id(rec.get("draft", {}), cards))
+    names = {c.card_id: c.title for c in pool}
+    st.markdown("**반복 퀘스트로 재사용** · 단계·보상·열림 조건은 그대로, 의뢰인과 대사만 바꿔요.")
+    picked = st.multiselect("새 의뢰인", list(names), default=list(names)[:3], format_func=names.get,
+                            key=f"vg_{path.name}", max_selections=5)
+    key = f"var_{path.name}"
+    if st.button("변형 만들기", key=f"vb_{path.name}", disabled=not picked):
+        with st.spinner("변형 쓰고 설정 검수하는 중…"):
+            st.session_state[key] = make_variants(llm, rec, picked, on_log=lambda *_: None)
+    res = st.session_state.get(key)
+    if not res:
+        return
+    cols = st.columns(len(res["variants"]) + 1)
+    with cols[0]:
+        st.caption("원본")
+        render_draft(res["base"])
+    for col, v in zip(cols[1:], res["variants"]):
+        with col:
+            badges = [("설정 통과" if v["lore_ok"] else "설정 문제"),
+                      ("골격 유지" if not v["skeleton_issues"] else "골격 바뀜"),
+                      f"대사 겹침 {v['max_line_similarity']}" + (" (복사 의심)" if v["copied_lines"] else "")]
+            st.caption(" · ".join(badges))
+            if v["draft"].get("motive"):
+                st.markdown(f"**동기** · {v['draft']['motive']}")
+            render_draft(v["draft"])
+            for prob in ([i.get("detail", "") for i in v["code_issues"]]
+                         + [i.get("problem", "") for i in v["review"].get("issues", [])] + v["skeleton_issues"]):
+                if prob:
+                    st.warning(prob)
+    st.download_button("변형 JSON 내려받기", json.dumps(res, ensure_ascii=False, indent=2),
+                       file_name=f"variants_{path.stem}.json", mime="application/json", key=f"vdl_{path.name}")
 
 
 # ---------------------------------------------------------------- 그리기
@@ -358,6 +397,7 @@ with tab_saved:
             render_plan(rec.get("plan_review", {}))
             st.download_button("JSON 내려받기", p.read_text(encoding="utf-8"), file_name=p.name,
                                mime="application/json", key=f"dl_{p.name}")
+            render_variant_tool(p, rec)
 
 with tab_guide:
     st.markdown("**메인 시나리오 사건** · 메인 퀘스트 몫이라 이 작업실(일일·서브 퀘스트)에서는 쓰지 않아요. "
