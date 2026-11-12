@@ -86,3 +86,12 @@ class Proposals(BaseModel):
         default_factory=list,
         description="요청한 개수를 못 채웠을 때: 왜 모자란지, 어떤 설정을 추가하면 더 만들 수 있는지",
     )
+
+
+class Variant(BaseModel):
+    title: str = Field(description="변형 퀘스트 제목. 원본과 겹치지 않게")
+    summary: str = Field(description="한두 줄 요약")
+    giver: str = Field(description="새 의뢰인(주어진 인물 카드의 title)")
+    motive: str = Field(description="이 의뢰인이 왜 이 일을 부탁하는지 한 줄. 카드의 성격·고민거리에서")
+    steps: list[Step] = Field(description="원본과 같은 개수·순서·행동·완료 조건. 의뢰인이 나오는 부분만 바꾼다")
+    dialogue: list[Line] = Field(description="새 의뢰인 말투로 새로 쓴 대사. 원본 대사를 이름만 바꿔 옮기지 않는다")

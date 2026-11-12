@@ -10,7 +10,7 @@ import json
 import os
 from typing import Protocol
 
-from .schemas import Draft, PlanReview, Proposals, Review
+from .schemas import Draft, PlanReview, Proposals, Review, Variant
 
 
 class QuestLLM(Protocol):
@@ -28,6 +28,11 @@ class QuestLLM(Protocol):
     def propose(self, cards: list[dict], chapter: int, existing: list[dict], n: int,
                 guide: dict | None = None) -> dict:
         """{"items": [{request, why, card_ids}], "needed_lore": [str]}"""
+        ...
+
+    def variant(self, base: dict, giver_card: dict, chapter: int, others: list[dict],
+                guide: dict | None = None) -> dict:
+        """반복 퀘스트 변형: {title, summary, giver, motive, steps, dialogue}. 골격은 원본 그대로, 의뢰인·대사만 새로."""
         ...
 
 
@@ -117,6 +122,22 @@ class FakeLLM:
 
     def review(self, draft, cards, chapter, guide=None):
         return {"verdict": "문제없음", "issues": []}
+
+    def variant(self, base, giver_card, chapter, others, guide=None):
+        old, new = base.get("giver", ""), giver_card["title"]
+        first = giver_card["text"].split(".")[0].strip()
+        def refs(s):  # 의뢰인이 나오는 단계는 의뢰인 카드 번호만 새 의뢰인으로
+            if old and old in s["text"]:
+                return [giver_card["card_id"] if r.startswith("char_") and r != "char_dosa_01" else r
+                        for r in s.get("lore_refs", [])]
+            return s.get("lore_refs", [])
+        steps = [{**s, "text": s["text"].replace(old, new), "lore_refs": refs(s)} for s in base.get("steps", [])]
+        lines = [{"speaker": new, "line": f"도사 양반, {first}… 그래서 부탁 좀 하려고.", "direction": "",
+                  "lore_refs": [giver_card["card_id"]]},
+                 {"speaker": "청운", "line": f"{new}까지 나서니 어쩔 수 없네. 다녀올게.", "direction": "",
+                  "lore_refs": ["char_dosa_01"]}]
+        return {"title": f"{new}의 부탁: {base.get('title', '')}"[:40], "summary": base.get("summary", "").replace(old, new),
+                "giver": new, "motive": first, "steps": steps, "dialogue": lines}
 
     def plan_review(self, draft, request, cards, chapter, guide=None):
         notes = []
@@ -270,6 +291,31 @@ PROPOSER_PROMPT = """너는 게임 퀘스트 기획 리드다. 아래 설정 카
 {existing}"""
 
 
+VARIANT_PROMPT = """너는 게임 퀘스트 기획자다. 이미 승인된 {chapter}장 반복 퀘스트를 다른 의뢰인 버전으로 바꿔 쓴다.
+게임에서 같은 반복 퀘스트(예: 마을 밖 요괴 수 줄이기)를 매일 하더라도, 의뢰인과 대사가 바뀌면 덜 지루하다.
+
+반드시 지킬 것(골격 유지: 게임 데이터를 재사용하기 위해서다)
+- 단계(steps)의 개수·순서·플레이어 행동·끝나는 조건은 원본과 같다. 의뢰인이 나오는 부분만 새 의뢰인으로 바꾼다.
+- 각 단계의 lore_refs는 원본과 같게 두되, 원본 의뢰인 카드 번호는 새 의뢰인 카드 번호({giver_id})로 바꾼다.
+- 장소·적·아이템을 바꾸지 않는다. 보상과 열림 조건은 코드가 원본 그대로 붙이므로 쓰지 않는다.
+
+새로 쓸 것
+- motive: 새 의뢰인이 왜 이 일을 부탁하는지. 새 의뢰인 카드의 성격·고민거리에서 찾는다. 카드에 없는 내력을 지어내지 않는다.
+- dialogue: 새 의뢰인의 말투로 새로 쓴다. 원본이나 다른 변형의 대사를 이름만 바꿔 옮기지 않는다.
+  청운의 대사도 상대에 맞게 바꾼다(청운의 성격은 그대로). line에는 말만, 행동은 direction에.
+- title, summary: 원본·다른 변형과 겹치지 않게.
+- 금지: 오니형 도깨비, 음양사 별 문양, 멸문·복수 서사.
+{guide}
+새 의뢰인 카드
+{giver}
+
+원본 퀘스트(이미 승인됨)
+{base}
+
+이미 만든 다른 변형(이것들과 대사·제목이 겹치지 않게)
+{others}"""
+
+
 class GeminiLLM:
     name = "gemini"
 
@@ -287,6 +333,7 @@ class GeminiLLM:
         self.reviewer = ChatGoogleGenerativeAI(model=model, api_key=key, temperature=0, **opts).with_structured_output(Review)
         self.planner = ChatGoogleGenerativeAI(model=model, api_key=key, temperature=0, **opts).with_structured_output(PlanReview)
         self.proposer = ChatGoogleGenerativeAI(model=model, api_key=key, temperature=0.9, **opts).with_structured_output(Proposals)
+        self.varier = ChatGoogleGenerativeAI(model=model, api_key=key, temperature=0.8, **opts).with_structured_output(Variant)
 
     def write(self, request, cards, chapter, feedback, previous, guide=None):
         fb = ""
@@ -317,6 +364,14 @@ class GeminiLLM:
                                         cards=json.dumps(cards, ensure_ascii=False, indent=1),
                                         existing=json.dumps(existing, ensure_ascii=False, indent=1) if existing else "없음")
         return self.proposer.invoke(prompt).model_dump()
+
+
+    def variant(self, base, giver_card, chapter, others, guide=None):
+        prompt = VARIANT_PROMPT.format(chapter=chapter, giver_id=giver_card["card_id"], guide=guide_block(guide),
+                                       giver=json.dumps(giver_card, ensure_ascii=False, indent=1),
+                                       base=json.dumps(base, ensure_ascii=False, indent=1),
+                                       others=json.dumps(others, ensure_ascii=False, indent=1) if others else "없음")
+        return self.varier.invoke(prompt).model_dump()
 
 
 def make_llm(kind: str = "auto") -> QuestLLM:

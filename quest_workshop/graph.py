@@ -52,7 +52,8 @@ class QuestState(TypedDict, total=False):
 
 
 def build_graph(llm, cards: dict[str, Card] | None = None, save_dir: str | Path = "output/quests",
-                checkpointer=None, beats: list[dict] | None = None):
+                checkpointer=None, beats: list[dict] | None = None, with_plan_review: bool = True):
+    """with_plan_review=False: 기획 검수 없이 설정 검수만(A/B/C 비교의 B)."""
     cards = cards or load_cards()
     save_dir = Path(save_dir)
     all_beats = load_main_story() if beats is None else beats
@@ -180,14 +181,19 @@ def build_graph(llm, cards: dict[str, Card] | None = None, save_dir: str | Path 
     g.add_node("search", search)
     g.add_node("write", write)
     g.add_node("lore_review", lore_review)
-    g.add_node("plan_review", plan_review)
+    if with_plan_review:
+        g.add_node("plan_review", plan_review)
     g.add_node("judge", judge)
     g.add_node("human", human)
     g.add_node("save", save)
     g.add_edge(START, "search")
     g.add_edge("search", "write")
-    g.add_conditional_edges("write", to_reviewers, ["lore_review", "plan_review"])
-    g.add_edge(["lore_review", "plan_review"], "judge")   # 둘 다 끝나야 판정
+    if with_plan_review:
+        g.add_conditional_edges("write", to_reviewers, ["lore_review", "plan_review"])
+        g.add_edge(["lore_review", "plan_review"], "judge")   # 둘 다 끝나야 판정
+    else:
+        g.add_edge("write", "lore_review")
+        g.add_edge("lore_review", "judge")
     g.add_conditional_edges("judge", after_judge, ["human", "write", END])
     g.add_conditional_edges("human", after_human, ["write", "save", END])
     g.add_edge("save", END)
