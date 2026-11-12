@@ -41,3 +41,15 @@ def test_skeleton_change_is_flagged():
                      {"order": 2, "text": "b", "lore_refs": ["place_tavern_01"]}]}
     assert skeleton_issues(base, var, "char_elder_01", "char_jumo_01")
     assert not skeleton_issues(base, {"steps": base["steps"]}, "char_elder_01", "char_elder_01")
+
+
+def test_failed_variant_is_reported_not_hidden(tmp_path):
+    rec = approved(tmp_path)
+
+    class Broken(FakeLLM):
+        def variant(self, *a, **k):
+            raise RuntimeError("모델 응답 없음")
+
+    res = make_variants(Broken(), rec, on_log=lambda *_: None)
+    assert res["variants"] == []
+    assert len(res["errors"]) == 3 and "모델 응답 없음" in res["errors"][0]["error"]

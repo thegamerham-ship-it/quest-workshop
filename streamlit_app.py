@@ -151,6 +151,11 @@ def render_variant_tool(path: Path, rec: dict) -> None:
     res = st.session_state.get(key)
     if not res:
         return
+    for e in res.get("errors", []):
+        st.error(f"{e['giver']} 변형 실패 · {e['error']}")
+    if not res["variants"]:
+        st.warning("변형을 하나도 만들지 못했어요. 위 오류를 확인하고 다시 눌러 주세요.")
+        return
     cols = st.columns(len(res["variants"]) + 1)
     with cols[0]:
         st.caption("원본")

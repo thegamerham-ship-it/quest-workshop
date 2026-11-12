@@ -91,7 +91,7 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
 python -m quest_workshop.run --demo --llm fake   # API 키 없이 테스트 요청 5개 자동 실행
-python -m pytest -q                               # 테스트 59개
+python -m pytest -q                               # 테스트 60개
 streamlit run streamlit_app.py                    # 웹 화면
 ```
 
@@ -156,7 +156,7 @@ python -m quest_workshop.variants output/quests/quest_xxx.json --llm gemini   # 
 | `quest_workshop/variants.py` | 반복 퀘스트 변형: 단계·보상·열림 조건은 그대로, 의뢰인·대사만 새로. 설정 검수·골격 유지·대사 겹침 점검 |
 | `quest_workshop/run.py` | 터미널 실행과 데모 |
 | `streamlit_app.py` | 웹 화면: 오늘의 제안 / 요청 직접 넣기 / 승인된 퀘스트(반복 퀘스트 변형 만들기) |
-| `tests/` | pytest 59개. 가짜 모델로 모든 경로(approved, rejected, needs_review, lore_gap)를 확인 |
+| `tests/` | pytest 60개. 가짜 모델로 모든 경로(approved, rejected, needs_review, lore_gap)를 확인 |
 
 ## AI와 함께 만든 방식
 

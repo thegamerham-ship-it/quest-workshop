@@ -69,13 +69,14 @@ def make_variants(llm, record: dict, giver_ids: list[str] | None = None, n: int 
     old_id = find_giver_id(base, cards)
     pool = giver_candidates(cards, chapter, exclude=old_id)
     chosen = [cards[i] for i in giver_ids if i in cards] if giver_ids else pool[:n]
-    out = []
+    out, errors = [], []
     for g in chosen:
         others = [{"title": v["draft"]["title"], "dialogue": v["draft"]["dialogue"]} for v in out]
         try:
             raw = llm.variant(base, g.for_writer(), chapter, others, guide=guide)
         except Exception as e:  # 하나가 실패해도 나머지는 만든다
             on_log(f"[변형] {g.title}: 실패 {str(e)[:120]}")
+            errors.append({"giver": g.title, "error": f"{type(e).__name__}: {str(e)[:200]}"})
             continue
         d = copy.deepcopy(base)
         d.update({k: raw[k] for k in ("title", "summary", "giver", "steps", "dialogue") if k in raw})
@@ -95,7 +96,8 @@ def make_variants(llm, record: dict, giver_ids: list[str] | None = None, n: int 
         v["lore_ok"] = not v["code_issues"] and v["review"].get("verdict") == "문제없음"
         on_log(f"[변형] {v['draft']['giver']}: 설정 {'통과' if v['lore_ok'] else '문제'}, "
                f"골격 {'유지' if not v['skeleton_issues'] else '바뀜'}, 대사 겹침 {v['max_line_similarity']}")
-    return {"base_giver_card_id": old_id, "base": base, "request": record.get("request", ""), "variants": out}
+    return {"base_giver_card_id": old_id, "base": base, "request": record.get("request", ""), "variants": out,
+            "errors": errors}
 
 
 def to_markdown(result: dict) -> str:

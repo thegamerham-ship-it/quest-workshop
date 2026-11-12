@@ -371,7 +371,11 @@ class GeminiLLM:
                                        giver=json.dumps(giver_card, ensure_ascii=False, indent=1),
                                        base=json.dumps(base, ensure_ascii=False, indent=1),
                                        others=json.dumps(others, ensure_ascii=False, indent=1) if others else "없음")
-        return self.varier.invoke(prompt).model_dump()
+        for _ in range(2):  # 형식에 맞는 답이 안 오면(None) 한 번 더
+            out = self.varier.invoke(prompt)
+            if out is not None:
+                return out.model_dump()
+        raise RuntimeError("모델이 변형을 형식에 맞게 돌려주지 않았어요")
 
 
 def make_llm(kind: str = "auto") -> QuestLLM:
