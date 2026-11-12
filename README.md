@@ -91,7 +91,7 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
 python -m quest_workshop.run --demo --llm fake   # API 키 없이 테스트 요청 5개 자동 실행
-python -m pytest -q                               # 테스트 59개
+python -m pytest -q                               # 테스트 60개
 streamlit run streamlit_app.py                    # 웹 화면
 ```
 
